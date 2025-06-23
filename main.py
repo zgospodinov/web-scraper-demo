@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 import smtplib
 from email.message import EmailMessage
 import ssl
+import sqlite3
 
 
 load_dotenv()
@@ -17,13 +18,15 @@ HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
 
 
+connection = sqlite3.connect(f'{SCRIPT_DIR}/web-scraper.db')
+
+
 def scrape(url):
     '''Scrape the given URL and return the scraped data as a list of dictionaries.'''
 
     response = requests.get(url, headers=HEADERS)
     if response.status_code != 200:
         raise Exception(f"Failed to fetch data from {url}")
-    # extractor = selectorlib.Extractor.from_yaml_file('selectors.yml')
     content = response.text
     return content
 
@@ -59,25 +62,32 @@ def send_email(tour_info):
         server.send_message(msg)
     
 
-def store(data, filename=STORAGE_FILE):
-    '''Append the given data to the specified file.'''
-    with open(filename, "a", encoding="utf-8") as file:
-        file.write(data + "\n")
+def store(data):
+    row = data.split(',')
+    row = [item.strip() for item in row]
+    band, city, date = row
+    currsor = connection.cursor()
+    currsor.execute("INSERT INTO events VALUES (?, ?, ?)", (band, city, date))
+    connection.commit()
     print("Data stored successfully.")
 
 
-def read_stored():
-    with open(STORAGE_FILE, 'r') as file:
-        return file.read().strip()
+def read_stored(extracted):
+    cursor = connection.cursor()
+    row = extracted.split(',')
+    row = [item.strip() for item in row]
+    band, city, date = row
+    cursor.execute("SELECT * FROM events WHERE band=? AND city=? AND date=?", (band, city, date))
+    result = cursor.fetchall()
+    return result
 
 
 if __name__ == "__main__":
     try:
         scraped = scrape(url)
         extracted = extract_data(scraped)
-        
-        stored_data = read_stored()
-        if extracted != 'No upcoming tours' and extracted not in stored_data:
+
+        if extracted != 'No upcoming tours' and not read_stored(extracted):
             store(extracted)
             send_email(extracted)
         
